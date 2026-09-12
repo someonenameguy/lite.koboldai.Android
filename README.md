@@ -1,4 +1,4 @@
-# KoboldAI Lite
+# Android Wrapper For KoboldAI Lite
 ## [lite.koboldai.net](https://lite.koboldai.net)
 
 This is a standalone Web UI for KoboldAI Client, KoboldCpp and AI Horde, which requires no dependencies, installation or setup. It's also capable of connecting to custom endpoints, including OpenAI, Claude, and both local and remote Kobold instances.
