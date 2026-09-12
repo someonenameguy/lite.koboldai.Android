@@ -1,0 +1,66 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'net.koboldai.lite'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "net.koboldai.lite"
+        minSdk 24
+        targetSdk 35
+        versionCode 346
+        versionName "1.0.346"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            applicationIdSuffix ".debug"
+            debuggable true
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+tasks.register('copyWebAssets', Copy) {
+    def rootDir = project.rootDir.parentFile
+    from(rootDir) {
+        include 'index.html'
+        include 'charcard.html'
+        include 'koboldcpp_api.html'
+        include 'koboldcpp_api.json'
+        include 'kudorank.html'
+        include 'manifest.json'
+        include 'niko.png'
+        include 'preview1.png'
+        include 'preview2.png'
+        include 'sw.js'
+    }
+    into layout.projectDirectory.dir("src/main/assets/web")
+}
+
+preBuild.dependsOn copyWebAssets
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.webkit:webkit:1.12.0'
+    implementation 'androidx.activity:activity-ktx:1.9.2'
+}

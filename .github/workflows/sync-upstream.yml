@@ -1,0 +1,47 @@
+name: Sync with Upstream
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # Run daily at 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream and merge
+        run: |
+          git remote add upstream https://github.com/LostRuins/lite.koboldai.net.git || true
+          git fetch upstream deploy
+
+          UPSTREAM_REV=$(git rev-parse upstream/deploy)
+          LOCAL_REV=$(git rev-parse HEAD)
+          MERGE_BASE=$(git merge-base HEAD upstream/deploy)
+
+          echo "Upstream rev: $UPSTREAM_REV"
+          echo "Local rev:    $LOCAL_REV"
+          echo "Merge base:   $MERGE_BASE"
+
+          if [ "$UPSTREAM_REV" = "$MERGE_BASE" ]; then
+            echo "Already up to date with upstream."
+            exit 0
+          fi
+
+          echo "Merging upstream/deploy into main..."
+          git merge upstream/deploy -m "Auto-sync with upstream (LostRuins/lite.koboldai.net:deploy)"
+          git push origin main
