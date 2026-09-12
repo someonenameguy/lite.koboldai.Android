@@ -45,7 +45,7 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      - name: Build Debug & Release APK
+      - name: Build Debug & Release APKs
         run: |
           cd android
           ./gradlew assembleDebug assembleRelease --stacktrace
@@ -54,16 +54,25 @@ jobs:
         id: prepare_apks
         run: |
           mkdir -p dist
-          
-          # Copy debug APK (already signed by Android debug key)
-          if [ -f android/app/build/outputs/apk/debug/app-debug.apk ]; then
-            cp android/app/build/outputs/apk/debug/app-debug.apk dist/KoboldAI-Lite-debug.apk
-          fi
+          shopt -s nullglob
 
-          # Sign release APK with debug keystore so it can be directly installed if no custom keystore is configured
-          RELEASE_UNSIGNED="android/app/build/outputs/apk/release/app-release-unsigned.apk"
-          if [ -f "$RELEASE_UNSIGNED" ]; then
-            # Generate a distribution keystore for signing release APK
+          # 1. Copy Debug APKs
+          debug_apks=(android/app/build/outputs/apk/debug/*.apk)
+          for apk in "${debug_apks[@]}"; do
+            filename=$(basename "$apk")
+            # Extract ABI tag if present (e.g., app-arm64-v8a-debug.apk -> arm64-v8a)
+            abi=$(echo "$filename" | sed -E 's/^app(-([a-zA-Z0-9_-]+))?-debug\.apk$/\2/')
+            if [ -n "$abi" ]; then
+              cp "$apk" "dist/KoboldAI-Lite-${abi}-debug.apk"
+            else
+              cp "$apk" "dist/KoboldAI-Lite-debug.apk"
+            fi
+          done
+
+          # 2. Process & Sign Release APKs
+          unsigned_apks=(android/app/build/outputs/apk/release/*-unsigned.apk)
+          if [ ${#unsigned_apks[@]} -gt 0 ]; then
+            # Generate temporary keystore for signing
             keytool -genkeypair -v \
               -keystore dist.keystore \
               -alias koboldkey \
@@ -74,19 +83,40 @@ jobs:
               -keypass koboldai \
               -dname "CN=KoboldAILite, OU=Mobile, O=KoboldAI, L=Global, S=Global, C=US"
 
-            # Find apksigner
-            APKSIGNER=$(find $ANDROID_HOME/build-tools -name apksigner | sort -V | tail -n 1)
-            $APKSIGNER sign \
-              --ks dist.keystore \
-              --ks-pass pass:koboldai \
-              --key-pass pass:koboldai \
-              --out dist/KoboldAI-Lite-release.apk \
-              "$RELEASE_UNSIGNED"
-            
-            cp "$RELEASE_UNSIGNED" dist/KoboldAI-Lite-release-unsigned.apk
+            APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
+
+            for apk in "${unsigned_apks[@]}"; do
+              filename=$(basename "$apk")
+              abi=$(echo "$filename" | sed -E 's/^app(-([a-zA-Z0-9_-]+))?-release-unsigned\.apk$/\2/')
+              if [ -n "$abi" ]; then
+                outname="KoboldAI-Lite-${abi}-release.apk"
+              else
+                outname="KoboldAI-Lite-release.apk"
+              fi
+
+              echo "Signing $filename -> dist/$outname"
+              $APKSIGNER sign \
+                --ks dist.keystore \
+                --ks-pass pass:koboldai \
+                --key-pass pass:koboldai \
+                --out "dist/$outname" \
+                "$apk"
+            done
+          else
+            # If release APKs were already signed by Gradle
+            release_apks=(android/app/build/outputs/apk/release/*.apk)
+            for apk in "${release_apks[@]}"; do
+              filename=$(basename "$apk")
+              abi=$(echo "$filename" | sed -E 's/^app(-([a-zA-Z0-9_-]+))?-release\.apk$/\2/')
+              if [ -n "$abi" ]; then
+                cp "$apk" "dist/KoboldAI-Lite-${abi}-release.apk"
+              else
+                cp "$apk" "dist/KoboldAI-Lite-release.apk"
+              fi
+            done
           fi
 
-          echo "Listing generated APKs in dist/:"
+          echo "Listing all generated APKs in dist/:"
           ls -lh dist/
 
       - name: Upload APK Artifacts
