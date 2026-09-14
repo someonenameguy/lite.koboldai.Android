@@ -1,0 +1,135 @@
+name: Build Android APK (Nightly)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
+      - name: Build Debug & Release APKs
+        run: |
+          cd android
+          ./gradlew assembleDebug assembleRelease --stacktrace
+
+      - name: Prepare APKs for Distribution
+        id: prepare_apks
+        run: |
+          mkdir -p dist
+          shopt -s nullglob
+
+          # 1. Copy Debug APKs
+          debug_apks=(android/app/build/outputs/apk/debug/*.apk)
+          for apk in "${debug_apks[@]}"; do
+            filename=$(basename "$apk")
+            abi=$(echo "$filename" | sed -E 's/^app(-([a-zA-Z0-9_-]+))?-debug\.apk$/\2/')
+            if [ -n "$abi" ]; then
+              cp "$apk" "dist/KoboldAI-Lite-${abi}-debug.apk"
+            else
+              cp "$apk" "dist/KoboldAI-Lite-debug.apk"
+            fi
+          done
+
+          # 2. Process & Sign Release APKs
+          unsigned_apks=(android/app/build/outputs/apk/release/*-unsigned.apk)
+          if [ ${#unsigned_apks[@]} -gt 0 ]; then
+            keytool -genkeypair -v \
+              -keystore dist.keystore \
+              -alias koboldkey \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass koboldai \
+              -keypass koboldai \
+              -dname "CN=KoboldAILite, OU=Mobile, O=KoboldAI, L=Global, S=Global, C=US"
+
+            APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
+
+            for apk in "${unsigned_apks[@]}"; do
+              filename=$(basename "$apk")
+              abi=$(echo "$filename" | sed -E 's/^app(-([a-zA-Z0-9_-]+))?-release-unsigned\.apk$/\2/')
+              if [ -n "$abi" ]; then
+                outname="KoboldAI-Lite-${abi}-release.apk"
+              else
+                outname="KoboldAI-Lite-release.apk"
+              fi
+
+              echo "Signing $filename -> dist/$outname"
+              $APKSIGNER sign \
+                --ks dist.keystore \
+                --ks-pass pass:koboldai \
+                --key-pass pass:koboldai \
+                --out "dist/$outname" \
+                "$apk"
+            done
+          else
+            release_apks=(android/app/build/outputs/apk/release/*.apk)
+            for apk in "${release_apks[@]}"; do
+              filename=$(basename "$apk")
+              abi=$(echo "$filename" | sed -E 's/^app(-([a-zA-Z0-9_-]+))?-release\.apk$/\2/')
+              if [ -n "$abi" ]; then
+                cp "$apk" "dist/KoboldAI-Lite-${abi}-release.apk"
+              else
+                cp "$apk" "dist/KoboldAI-Lite-release.apk"
+              fi
+            done
+          fi
+
+          echo "Listing all generated APKs in dist/:"
+          ls -lh dist/
+
+      - name: Upload APK Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: KoboldAI-Lite-APKs
+          path: dist/*.apk
+          retention-days: 14
+
+      - name: Update 'nightly' Git Tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f nightly
+          git push -f origin nightly
+
+      - name: Publish / Update Nightly Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: nightly
+          name: "KoboldAI Lite (Nightly)"
+          body: |
+            Automated nightly build from commit `${{ github.sha }}`.
+            
+            *This release is automatically overwritten with the latest build from the `main` branch.*
+          prerelease: true
+          draft: false
+          files: dist/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
